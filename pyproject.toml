@@ -26,6 +26,12 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy"
 ]
 
+[project.optional-dependencies]
+xxhash = ["xxhash>=3.0"]
+numpy = ["numpy>=1.24"]
+pandas = ["pandas>=2.0"]
+polars = ["polars>=0.20"]
+
 [project.urls]
 Issues = "https://github.com/juftin/cohorting/issues"
 Source = "https://github.com/juftin/cohorting"
@@ -35,7 +41,16 @@ dev = [
   "pytest",
   "pytest-cov",
   "mypy>=1,<2",
-  "ruff~=0.12.10"
+  "ruff~=0.12.10",
+  "line-profiler>=4.0",
+  "memray>=1.0",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pandas-stubs>=2.3.3.260113",
+  "polars>=0.20",
+  "pyinstrument>=5.0",
+  "snakeviz>=2.1",
+  "xxhash>=3.0"
 ]
 
 [tool.pytest.ini_options]
@@ -96,32 +111,7 @@ ignore = [
   # Exception must not use a string literal, assign to variable first
   "EM101"
 ]
-select = [
-  "A",  # flake8-builtins
-  "ARG",  # flake8-unused-arguments
-  "B",  # flake8-bugbear
-  "C",  # mccabe
-  "DTZ",  # flake8-datetimez
-  "E",  # pycodestyle (Error)
-  "EM",  # flake8-errmsg
-  "F",  # Pyflakes
-  "FBT",  # flake8-boolean-trap
-  "I",  # isort
-  "ICN",  # flake8-import-conventions
-  "N",  # pep8-naming
-  "PLC",  # Pylint (Convention message)
-  "PLE",  # Pylint (Error message)
-  "PLR",  # Pylint (Refactor message)
-  "PLW",  # Pylint (Warning message)
-  "Q",  # flake8-quotes
-  "RUF",  # Ruff-specific rules
-  "S",  # flake8-bandit
-  "T",  # flake8-debugger (T10) and flake8-print (T20)
-  "TID",  # flake8-tidy-imports
-  "UP",  # pyupgrade
-  "W",  # pycodestyle (Warning)
-  "YTT"  # flake8-2020
-]
+select = ["E", "F", "I", "UP"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

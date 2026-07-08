@@ -137,3 +137,6 @@ dmypy.json
 
 # Node.js
 node_modules/
+
+# Project Ignores
+scripts/profiling/results/
