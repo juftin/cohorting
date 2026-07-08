@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: lint
+
+on:
+    pull_request:
+
+jobs:
+    lint:
+        runs-on: ubuntu-latest
+        steps:
+            - name: lint
+              id: lint
+              uses: juftin/actions/taskfile@v1
+              continue-on-error: true
+              with:
+                  checkout: true
+                  setup-uv: true
+                  task: lint
+                  install: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  annotations-ruff: true
+            - name: check
+              id: check
+              uses: juftin/actions/taskfile@v1
+              continue-on-error: true
+              with:
+                  task: check
+                  setup-task: false
+                  annotations-mypy: true
+            - name: Raise Errors For Failures
+              if: |
+                  steps.lint.outcome != 'success' || steps.check.outcome != 'success'
+              run: |
+                  echo "Lint: ${{ steps.lint.outcome }}"
+                  echo "Check: ${{ steps.check.outcome }}"
+                  exit 1
