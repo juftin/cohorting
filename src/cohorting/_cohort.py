@@ -140,8 +140,10 @@ def _dispatch_assign(
         if _is_polars_series(data):
             import polars as _pl
 
-            floats = _rust_random_floats(len(data))
-            result = [_names_list[bisect.bisect_right(_lowers, f) - 1] for f in floats]
+            random_floats = _rust_random_floats(len(data))
+            result = [
+                _names_list[bisect.bisect_right(_lowers, f) - 1] for f in random_floats
+            ]
             return _pl.Series(name=data.name, values=result)
         raise TypeError(
             f"assign_cohorts expected str, list, np.ndarray, pd.Series, or pl.Series; "

@@ -120,15 +120,17 @@ def _dispatch_hash(
         import pandas as pd
 
         str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
-        result = _rust_hash_strings(str_ids, sep_salt)
-        return pd.Series(result, index=data.index, name=data.name)
+        return pd.Series(
+            _rust_hash_strings(str_ids, sep_salt),
+            index=data.index,
+            name=data.name,
+        )
 
     if _is_polars_series(data):
         import polars as pl
 
         str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
-        result = _rust_hash_strings(str_ids, sep_salt)
-        return pl.Series(name=data.name, values=result)
+        return pl.Series(name=data.name, values=_rust_hash_strings(str_ids, sep_salt))
 
     raise TypeError(
         f"hash_values expected str, list, np.ndarray, pd.Series, or pl.Series; "

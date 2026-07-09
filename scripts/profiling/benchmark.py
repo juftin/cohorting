@@ -38,13 +38,12 @@ def _make_ids(n: int) -> list[str]:
     return [f"user_{i}" for i in range(n)]
 
 
-def _make_exp(*, cache: bool, xxhash: bool) -> Experiment:
-    """Construct a two-cohort experiment with the given backend settings."""
+def _make_exp(*, cache: bool) -> Experiment:
+    """Construct a two-cohort experiment with the given cache setting."""
     return Experiment(
         name="bench",
         splits=even_split(names=["control", "treatment"]),
         cache=cache,
-        xxhash=xxhash,
     )
 
 
@@ -121,8 +120,8 @@ def bench_polars(exp: Experiment, ids: list[str], *, warm: bool) -> None:
     _row("pl.Series", secs, tput)
 
 
-def _bench_scenario(label: str, *, cache: bool, xxhash: bool, ids: list[str]) -> None:
-    """Run all four input types for one (cache, backend) scenario.
+def _bench_scenario(label: str, *, cache: bool, ids: list[str]) -> None:
+    """Run all four input types for one cache scenario.
 
     Parameters
     ----------
@@ -130,19 +129,13 @@ def _bench_scenario(label: str, *, cache: bool, xxhash: bool, ids: list[str]) ->
         Human-readable scenario description printed as a sub-header.
     cache : bool
         Whether to enable LRU caching on the experiment.
-    xxhash : bool
-        Whether to use the xxhash backend.
     ids : list[str]
         Identifiers to assign.
     """
     print(f"\n  [{label}]")
     print(f"    {'input type':<32} {'time':>12}   {'throughput':>10}")
     print(f"    {'-' * 32} {'-' * 12}   {'-' * 10}")
-    try:
-        exp = _make_exp(cache=cache, xxhash=xxhash)
-    except ImportError:
-        print("    (xxhash not installed — skipping)")
-        return
+    exp = _make_exp(cache=cache)
     warm = cache
     bench_list(exp, ids, warm=warm)
     bench_numpy(exp, ids, warm=warm)
@@ -156,10 +149,8 @@ def _bench_scenario(label: str, *, cache: bool, xxhash: bool, ids: list[str]) ->
 def run() -> None:
     """Run the full benchmark suite and print results to stdout."""
     scenarios = [
-        ("hashlib  cache=False", False, False),
-        ("hashlib  cache=True (warm)", True, False),
-        ("xxhash   cache=False", False, True),
-        ("xxhash   cache=True (warm)", True, True),
+        ("siphash  cache=False", False),
+        ("siphash  cache=True (warm)", True),
     ]
 
     for n in SIZES:
@@ -167,8 +158,8 @@ def run() -> None:
         print(f"  N = {n:>10,} identifiers")
         print(f"{'=' * 62}")
         ids = _make_ids(n)
-        for label, cache, xxhash in scenarios:
-            _bench_scenario(label, cache=cache, xxhash=xxhash, ids=ids)
+        for label, cache in scenarios:
+            _bench_scenario(label, cache=cache, ids=ids)
 
 
 if __name__ == "__main__":
