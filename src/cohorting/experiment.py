@@ -59,7 +59,6 @@ class Experiment:
         "_deterministic",
         "_sep_salt",
         "_sorted_bounds",
-        "_xxhash",
         "name",
         "salt",
         "splits",
@@ -71,7 +70,6 @@ class Experiment:
         name: str,
         salt: str | None = None,
         splits: SplitInput,
-        xxhash: bool = False,
         deterministic: bool = True,
         cache: bool = False,
     ) -> None:
@@ -88,9 +86,6 @@ class Experiment:
         splits : SplitInput
             Cohort splits as a SplitMap dict or list of CohortSplit instances.
             Must span exactly [0, 1) with no gaps or overlaps.
-        xxhash : bool, optional
-            Use the xxhash backend for this experiment. Requires
-            ``cohorting[xxhash]`` to be installed. Defaults to False (hashlib).
         deterministic : bool, optional
             When False, bypass hashing entirely and assign each identifier to a
             randomly chosen cohort using OS entropy (``os.urandom``). The result
@@ -104,14 +99,11 @@ class Experiment:
         ------
         ValueError
             If splits are invalid (gap, overlap, or wrong bounds).
-        ImportError
-            If ``xxhash=True`` and xxhash is not installed.
         """
         self.name = name
         self.salt = salt if salt is not None else name
         self.splits = _normalize_splits(splits)
         validate_splits(self.splits)
-        self._xxhash = xxhash
         self._deterministic = deterministic
         self._cache = cache
         # \x00 byte separates identifier from salt, preventing a collision
@@ -137,8 +129,6 @@ class Experiment:
             f"salt={self.salt!r}",
             f"splits={self.splits!r}",
         ]
-        if self._xxhash:
-            parts.append("xxhash=True")
         if not self._deterministic:
             parts.append("deterministic=False")
         if self._cache:
@@ -156,14 +146,12 @@ class Experiment:
             self.name,
             self.salt,
             self.splits,
-            self._xxhash,
             self._deterministic,
             self._cache,
         ) == (
             other.name,
             other.salt,
             other.splits,
-            other._xxhash,
             other._deterministic,
             other._cache,
         )
@@ -219,7 +207,6 @@ class Experiment:
         return _dispatch_hash(
             data,
             sep_salt=self._sep_salt,
-            use_xxhash=self._xxhash,
             use_deterministic=self._deterministic,
             use_cache=self._cache,
         )
@@ -277,7 +264,6 @@ class Experiment:
             data,
             sep_salt=self._sep_salt,
             sorted_bounds=self._sorted_bounds,
-            use_xxhash=self._xxhash,
             use_deterministic=self._deterministic,
             use_cache=self._cache,
         )

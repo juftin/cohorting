@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast, overload
 
+from cohorting._core import (
+    hash_numpy as _rust_hash_numpy,
+)
 from cohorting._core import (
     hash_single as _rust_hash_single,
 )
@@ -18,6 +20,9 @@ from cohorting._core import (
 from cohorting._core import (
     random_floats as _rust_random_floats,
 )
+from cohorting._core import (
+    random_floats_numpy as _rust_random_floats_numpy,
+)
 from cohorting._models import _is_numpy_array, _is_pandas_series, _is_polars_series
 
 if TYPE_CHECKING:
@@ -27,20 +32,15 @@ if TYPE_CHECKING:
     import polars as pl
 
 _INV_2_64: float = 1.0 / (2**64)
-"""Reciprocal of 2^64; multiplied instead of dividing to produce float in [0, 1)."""
 
-_USE_XXHASH: bool = False
 _USE_DETERMINISTIC: bool = True
 _USE_CACHE: bool = False
 
-if os.environ.get("COHORTING_HASH_BACKEND", "").lower() == "xxhash":
-    _USE_XXHASH = True
-
 
 @lru_cache(maxsize=65_536)
-def _cached_hash_single(x: str, sep_salt: bytes, use_xxhash: bool) -> float:
+def _cached_hash_single(x: str, sep_salt: bytes) -> float:
     """Cached wrapper around the Rust hash_single."""
-    return _rust_hash_single(x, sep_salt, use_xxhash)
+    return _rust_hash_single(x, sep_salt)
 
 
 def _random_float() -> float:
@@ -52,11 +52,10 @@ def _dispatch_hash(
     data: Any,
     *,
     sep_salt: bytes,
-    use_xxhash: bool,
     use_deterministic: bool,
     use_cache: bool,
 ) -> Any:
-    """Apply the selected hash backend to all supported data types.
+    """Apply hashing to all supported data types.
 
     Parameters
     ----------
@@ -64,8 +63,6 @@ def _dispatch_hash(
         Input identifiers. Integers are accepted alongside strings.
     sep_salt : bytes
         Pre-encoded b"\\x00" + salt bytes. Unused when ``use_deterministic=False``.
-    use_xxhash : bool
-        True for xxhash; False for hashlib. Unused when ``use_deterministic=False``.
     use_deterministic : bool
         False to bypass hashing entirely and return OS-entropy random floats.
     use_cache : bool
@@ -87,32 +84,17 @@ def _dispatch_hash(
         if isinstance(data, list):
             return _rust_random_floats(len(data))
         if _is_numpy_array(data):
-            import numpy as np
-
-            raw_arr = np.frombuffer(os.urandom(data.size * 8), dtype=np.uint64)
-            return (raw_arr.astype(np.float64) * _INV_2_64).reshape(data.shape)
+            return _rust_random_floats_numpy(data.size).reshape(data.shape)
         if _is_pandas_series(data):
-            import numpy as np
             import pandas as pd
 
-            raw_arr = np.frombuffer(os.urandom(len(data) * 8), dtype=np.uint64)
-            return pd.Series(
-                data=raw_arr.astype(np.float64) * _INV_2_64,
-                index=data.index,
-                name=data.name,
-            )
+            result = _rust_random_floats_numpy(len(data))
+            return pd.Series(result, index=data.index, name=data.name)
         if _is_polars_series(data):
             import polars as pl
 
-            n = len(data)
-            raw_bytes = os.urandom(n * 8)
-            return pl.Series(
-                name=data.name,
-                values=[
-                    int.from_bytes(raw_bytes[i * 8 : (i + 1) * 8], "little") * _INV_2_64
-                    for i in range(n)
-                ],
-            )
+            floats = _rust_random_floats(len(data))
+            return pl.Series(name=data.name, values=floats)
         raise TypeError(
             f"hash_values expected str, list, np.ndarray, pd.Series, or pl.Series; "
             f"got {type(data).__name__}"
@@ -122,35 +104,30 @@ def _dispatch_hash(
         norm: str | int = int(data) if isinstance(data, bool) else data
         norm_str = str(norm)
         if use_cache:
-            return _cached_hash_single(norm_str, sep_salt, use_xxhash)
-        return _rust_hash_single(norm_str, sep_salt, use_xxhash)
+            return _cached_hash_single(norm_str, sep_salt)
+        return _rust_hash_single(norm_str, sep_salt)
 
     if isinstance(data, list):
         norm_list = [str(int(x) if isinstance(x, bool) else x) for x in data]
         if use_cache:
-            return [_cached_hash_single(x, sep_salt, use_xxhash) for x in norm_list]
-        return _rust_hash_strings(norm_list, sep_salt, use_xxhash)
+            return [_cached_hash_single(x, sep_salt) for x in norm_list]
+        return _rust_hash_strings(norm_list, sep_salt)
 
     if _is_numpy_array(data):
-        import numpy as np
-
-        flat = data.flatten()
-        str_ids = [str(int(x) if isinstance(x, bool) else x) for x in flat]
-        result_flat = _rust_hash_strings(str_ids, sep_salt, use_xxhash)
-        return np.array(result_flat, dtype=np.float64).reshape(data.shape)
+        return _rust_hash_numpy(data, sep_salt).reshape(data.shape)
 
     if _is_pandas_series(data):
         import pandas as pd
 
         str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
-        result = _rust_hash_strings(str_ids, sep_salt, use_xxhash)
+        result = _rust_hash_strings(str_ids, sep_salt)
         return pd.Series(result, index=data.index, name=data.name)
 
     if _is_polars_series(data):
         import polars as pl
 
         str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
-        result = _rust_hash_strings(str_ids, sep_salt, use_xxhash)
+        result = _rust_hash_strings(str_ids, sep_salt)
         return pl.Series(name=data.name, values=result)
 
     raise TypeError(
@@ -190,11 +167,9 @@ def hash_values(data: pl.Series, *, salt: str) -> pl.Series: ...
 def hash_values(data: Any, *, salt: str) -> Any:
     """Hash identifiers to deterministic floats in [0, 1).
 
-    The default backend is blake2b (always available, compiled in Rust).
-    To use the faster xxhash backend, set ``COHORTING_HASH_BACKEND=xxhash`` or call
-    ``cohorting.config.xxhash = True`` before hashing. For high-throughput use
-    cases, prefer :class:`cohorting.Experiment` — it computes the salt bytes once
-    at construction rather than on every call.
+    Uses the xxh3_64 algorithm compiled in Rust for high throughput.
+    For high-throughput use cases, prefer :class:`cohorting.Experiment` —
+    it computes the salt bytes once at construction rather than on every call.
 
     Integer identifiers are converted to their decimal string representation before
     hashing, so ``hash_values(123, salt="exp")`` and
@@ -238,9 +213,7 @@ def hash_values(data: Any, *, salt: str) -> Any:
     """
     return _dispatch_hash(
         data,
-        sep_salt=b"\x00"
-        + salt.encode(),  # \x00 separates identifier from salt; see Experiment.__init__
-        use_xxhash=_USE_XXHASH,
+        sep_salt=b"\x00" + salt.encode(),
         use_deterministic=_USE_DETERMINISTIC,
         use_cache=_USE_CACHE,
     )
@@ -274,19 +247,6 @@ def hash_orm(
     ------
     AttributeError
         If obj does not have the given attribute.
-
-    Examples
-    --------
-    >>> from dataclasses import dataclass
-    >>> from cohorting import hash_values
-    >>> from cohorting._hash import hash_orm
-    >>> @dataclass
-    ... class User:
-    ...     user_id: str
-    >>> hash_values(data="user_1", salt="exp") == hash_orm(
-    ...     obj=User(user_id="user_1"), id_field="user_id", salt="exp"
-    ... )
-    True
     """
     if isinstance(obj, list):
         return hash_values([cast(str, getattr(o, id_field)) for o in obj], salt=salt)

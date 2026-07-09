@@ -78,13 +78,6 @@ def test_experiment_assign_batch() -> None:
 
 
 @pytest.mark.benchmark
-def test_experiment_assign_batch_xxhash() -> None:
-    """Assign a batch of identifiers using the xxhash backend."""
-    exp = Experiment(name="checkout", splits=SPLITS, xxhash=True)
-    exp.assign(IDS)
-
-
-@pytest.mark.benchmark
 def test_assign_numpy() -> None:
     """Assign a numpy array of identifiers via the functional API."""
     arr = np.array(IDS)

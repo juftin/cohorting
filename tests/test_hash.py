@@ -9,31 +9,12 @@ import pytest
 from cohorting._hash import hash_orm, hash_values
 
 
-def test_hash_hashlib_known_value() -> None:
-    """Default blake2b backend produces the expected deterministic float.
-
-    Golden value: Blake2b512 (first 8 bytes as little-endian u64 / 2^64)
-    over "user_123" + b"\\x00exp".
-    """
-    expected = 0.33078074404357033
-    assert hash_values("user_123", salt="exp") == expected
-
-
-def test_hash_xxhash_known_value() -> None:
-    """xxhash backend produces the expected deterministic float.
+def test_hash_known_value() -> None:
+    """Hash produces the expected deterministic float.
 
     Golden value: xxh3_64 one-shot over "user_123" + b"\\x00exp", hash64 / 2^64.
-    Both backends are compiled into the Rust extension — no importorskip needed.
     """
-    from cohorting import config, hash_values
-
-    config.xxhash = True
-    try:
-        result = hash_values("user_123", salt="exp")
-    finally:
-        config.xxhash = False
-
-    assert result == 0.8382543487878418
+    assert hash_values("user_123", salt="exp") == 0.8382543487878418
 
 
 def test_hash_single_string_returns_float() -> None:

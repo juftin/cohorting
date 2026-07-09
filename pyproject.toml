@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-xxhash = ["xxhash>=3.0"]
+xxhash = []  # No-op stub; xxh3_64 is compiled into the Rust extension
 numpy = ["numpy>=1.24"]
 pandas = ["pandas>=2.0"]
 polars = ["polars>=0.20"]
@@ -51,7 +51,6 @@ dev = [
   "polars>=0.20",
   "pyinstrument>=5.0",
   "snakeviz>=2.1",
-  "xxhash>=3.0",
   "pytest-codspeed>=5.0.3"
 ]
 

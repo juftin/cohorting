@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any, cast, overload
 
 import cohorting._hash as _hash_mod
 from cohorting._core import (
+    assign_numpy as _rust_assign_numpy,
+)
+from cohorting._core import (
     assign_single as _rust_assign_single,
 )
 from cohorting._core import (
@@ -18,6 +21,9 @@ from cohorting._core import (
 )
 from cohorting._core import (
     random_floats as _rust_random_floats,
+)
+from cohorting._core import (
+    random_floats_numpy as _rust_random_floats_numpy,
 )
 from cohorting._models import (
     SplitInput,
@@ -42,18 +48,7 @@ _SortedBounds = tuple[tuple[str, float, float], ...]
 
 
 def _splits_to_sorted_bounds(splits: SplitMap) -> _SortedBounds:
-    """Convert a SplitMap to a sorted tuple for bisect-based assignment.
-
-    Parameters
-    ----------
-    splits : SplitMap
-        Cohort split map.
-
-    Returns
-    -------
-    _SortedBounds
-        Tuple of (name, lower, upper) sorted by lower bound.
-    """
+    """Convert a SplitMap to a sorted tuple for bisect-based assignment."""
     return tuple(
         sorted(
             ((name, b["lower"], b["upper"]) for name, b in splits.items()),
@@ -64,63 +59,22 @@ def _splits_to_sorted_bounds(splits: SplitMap) -> _SortedBounds:
 
 @cache
 def _get_lower_bounds(sorted_bounds: _SortedBounds) -> tuple[float, ...]:
-    """Extract lower bounds for bisect lookup, cached per unique experiment config.
-
-    Parameters
-    ----------
-    sorted_bounds : _SortedBounds
-        Pre-sorted cohort bounds.
-
-    Returns
-    -------
-    tuple[float, ...]
-        Lower bound values in sorted order.
-    """
+    """Extract lower bounds for bisect lookup, cached per unique experiment config."""
     return tuple(b[1] for b in sorted_bounds)
 
 
 @cache
 def _get_cohort_names(sorted_bounds: _SortedBounds) -> tuple[str, ...]:
-    """Extract cohort names in sorted order, cached per unique experiment config.
-
-    Parameters
-    ----------
-    sorted_bounds : _SortedBounds
-        Pre-sorted cohort bounds.
-
-    Returns
-    -------
-    tuple[str, ...]
-        Cohort names in sorted order.
-    """
+    """Extract cohort names in sorted order, cached per unique experiment config."""
     return tuple(b[0] for b in sorted_bounds)
 
 
 @lru_cache(maxsize=65_536)
-def _cached_assign_single(
-    x: str, sep_salt: bytes, use_xxhash: bool, sorted_bounds: _SortedBounds
-) -> str:
-    """Cached hash + assign via Rust.
-
-    Parameters
-    ----------
-    x : str
-        Identifier.
-    sep_salt : bytes
-        Pre-encoded b"\\x00" + salt bytes.
-    use_xxhash : bool
-        True for xxhash backend.
-    sorted_bounds : _SortedBounds
-        Pre-sorted cohort bounds.
-
-    Returns
-    -------
-    str
-        Cohort name.
-    """
+def _cached_assign_single(x: str, sep_salt: bytes, sorted_bounds: _SortedBounds) -> str:
+    """Cached hash + assign via Rust."""
     lowers = _get_lower_bounds(sorted_bounds)
     names = _get_cohort_names(sorted_bounds)
-    return _rust_assign_single(x, sep_salt, use_xxhash, list(names), list(lowers))
+    return _rust_assign_single(x, sep_salt, list(names), list(lowers))
 
 
 def _dispatch_assign(
@@ -128,7 +82,6 @@ def _dispatch_assign(
     *,
     sep_salt: bytes,
     sorted_bounds: _SortedBounds,
-    use_xxhash: bool,
     use_deterministic: bool,
     use_cache: bool,
 ) -> Any:
@@ -142,11 +95,8 @@ def _dispatch_assign(
         Pre-encoded b"\\x00" + salt bytes. Unused when ``use_deterministic=False``.
     sorted_bounds : _SortedBounds
         Pre-sorted, validated cohort bounds.
-    use_xxhash : bool
-        True for xxhash; False for hashlib. Unused when ``use_deterministic=False``.
     use_deterministic : bool
-        False to bypass hashing and assign each identifier to a randomly chosen cohort
-        using OS entropy.
+        False to bypass hashing and assign each identifier to a randomly chosen cohort.
     use_cache : bool
         True to use LRU-cached assign functions.
 
@@ -175,7 +125,7 @@ def _dispatch_assign(
         if _is_numpy_array(data):
             import numpy as _np
 
-            floats = _rust_random_floats(data.size)
+            floats = _rust_random_floats_numpy(data.size).flatten()
             names_arr = _np.array(_names_list)
             indices = _np.searchsorted(_lowers, floats, side="right") - 1
             return names_arr[indices].reshape(data.shape)
@@ -183,7 +133,7 @@ def _dispatch_assign(
             import numpy as _np
             import pandas as _pd
 
-            floats = _rust_random_floats(len(data))
+            floats = _rust_random_floats_numpy(len(data))
             names_arr = _np.array(_names_list)
             indices = _np.searchsorted(_lowers, floats, side="right") - 1
             return _pd.Series(names_arr[indices], index=data.index, name=data.name)
@@ -205,27 +155,19 @@ def _dispatch_assign(
         norm: str | int = int(data) if isinstance(data, bool) else data
         norm_str = str(norm)
         if use_cache:
-            return _cached_assign_single(norm_str, sep_salt, use_xxhash, sorted_bounds)
-        return _rust_assign_single(
-            norm_str, sep_salt, use_xxhash, list(names), list(lowers)
-        )
+            return _cached_assign_single(norm_str, sep_salt, sorted_bounds)
+        return _rust_assign_single(norm_str, sep_salt, list(names), list(lowers))
 
     if isinstance(data, list):
         norm_list = [str(int(x) if isinstance(x, bool) else x) for x in data]
         if use_cache:
             return [
-                _cached_assign_single(x, sep_salt, use_xxhash, sorted_bounds)
-                for x in norm_list
+                _cached_assign_single(x, sep_salt, sorted_bounds) for x in norm_list
             ]
-        return _rust_assign_strings(
-            norm_list, sep_salt, use_xxhash, list(names), list(lowers)
-        )
+        return _rust_assign_strings(norm_list, sep_salt, list(names), list(lowers))
 
     if _is_numpy_array(data):
-        str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data.flat]
-        result = _rust_assign_strings(
-            str_ids, sep_salt, use_xxhash, list(names), list(lowers)
-        )
+        result = _rust_assign_numpy(data, sep_salt, list(names), list(lowers))
         import numpy as _np
 
         return _np.array(result).reshape(data.shape)
@@ -234,18 +176,14 @@ def _dispatch_assign(
         import pandas as _pd
 
         str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
-        result = _rust_assign_strings(
-            str_ids, sep_salt, use_xxhash, list(names), list(lowers)
-        )
+        result = _rust_assign_strings(str_ids, sep_salt, list(names), list(lowers))
         return _pd.Series(result, index=data.index, name=data.name)
 
     if _is_polars_series(data):
         import polars as _pl
 
         str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
-        result = _rust_assign_strings(
-            str_ids, sep_salt, use_xxhash, list(names), list(lowers)
-        )
+        result = _rust_assign_strings(str_ids, sep_salt, list(names), list(lowers))
         return _pl.Series(name=data.name, values=result)
 
     raise TypeError(
@@ -316,37 +254,15 @@ def assign_cohorts(data: Any, *, splits: SplitInput, salt: str) -> Any:
         If splits are invalid (delegated to validate_splits).
     TypeError
         If data is not one of the supported input types.
-
-    Notes
-    -----
-    For repeated assignments against the same experiment configuration, prefer
-    :class:`cohorting.Experiment` — it validates and sorts splits once at
-    construction rather than on every call.
-
-    Examples
-    --------
-    >>> from cohorting import assign_cohorts, even_split
-    >>> splits = even_split(names=["control", "treatment"])
-    >>> assign_cohorts(data="user_1", splits=splits, salt="exp")
-    'control'
-    >>> assign_cohorts(data=123, splits=splits, salt="exp") == assign_cohorts(
-    ...     data="123", splits=splits, salt="exp"
-    ... )
-    True
-    >>> assign_cohorts(data=["u1", "u2", "u3"], splits=splits, salt="exp")
-    ['treatment', 'treatment', 'control']
     """
     split_map = _normalize_splits(splits)
     validate_splits(split_map)
-    sep_salt = (
-        b"\x00" + salt.encode()
-    )  # \x00 separates identifier from salt; see Experiment.__init__
+    sep_salt = b"\x00" + salt.encode()
     sorted_bounds = _splits_to_sorted_bounds(split_map)
     return _dispatch_assign(
         data,
         sep_salt=sep_salt,
         sorted_bounds=sorted_bounds,
-        use_xxhash=_hash_mod._USE_XXHASH,
         use_deterministic=_hash_mod._USE_DETERMINISTIC,
         use_cache=_hash_mod._USE_CACHE,
     )
@@ -391,23 +307,6 @@ def assign_cohorts_to_frame(
         If splits are invalid (delegated to validate_splits).
     TypeError
         If df is not a pandas or polars DataFrame.
-
-    Notes
-    -----
-    Both pandas and polars DataFrames are supported. The input DataFrame is not
-    mutated; a new DataFrame with the cohort column appended is returned.
-
-    Examples
-    --------
-    >>> import pandas as pd
-    >>> from cohorting import assign_cohorts_to_frame, even_split
-    >>> splits = even_split(names=["control", "treatment"])
-    >>> df = pd.DataFrame({"user_id": ["user_1", "user_2", "user_3"]})
-    >>> assign_cohorts_to_frame(df, id_column="user_id", splits=splits, salt="exp")
-      user_id     cohort
-    0  user_1    control
-    1  user_2    control
-    2  user_3  treatment
     """
     if _is_pandas_frame(df):
         import pandas as _pd
@@ -465,23 +364,6 @@ def assign_orm(
         If obj does not have the given attribute.
     ValueError
         If splits are invalid (delegated to validate_splits).
-
-    Examples
-    --------
-    >>> from dataclasses import dataclass
-    >>> from cohorting import assign_cohorts, assign_orm, even_split
-    >>> @dataclass
-    ... class User:
-    ...     user_id: str
-    >>> splits = even_split(names=["control", "treatment"])
-    >>> assign_orm(User(user_id="user_1"), id_field="user_id",
-    ...             splits=splits, salt="exp")
-    'control'
-    >>> assign_orm(User(user_id="user_1"), id_field="user_id",
-    ...             splits=splits, salt="exp") == assign_cohorts(
-    ...                 data="user_1", splits=splits, salt="exp"
-    ...             )
-    True
     """
     if isinstance(obj, list):
         return assign_cohorts(
