@@ -8,7 +8,7 @@ from cohorting._cohort import (
     _dispatch_assign,
     _splits_to_sorted_bounds,
 )
-from cohorting._hash import _dispatch_hash, _ensure_xxhash
+from cohorting._hash import _dispatch_hash
 from cohorting._models import (
     SplitInput,
     _is_pandas_frame,
@@ -114,8 +114,6 @@ class Experiment:
         self._xxhash = xxhash
         self._deterministic = deterministic
         self._cache = cache
-        if xxhash:
-            _ensure_xxhash()
         # \x00 byte separates identifier from salt, preventing a collision
         # between identifier "foob" + salt "ar" and identifier "foo" + salt "bar".
         self._sep_salt = b"\x00" + self.salt.encode()

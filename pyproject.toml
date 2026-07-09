@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "cohorting"
@@ -40,6 +40,7 @@ Source = "https://github.com/juftin/cohorting"
 dev = [
   "pytest",
   "pytest-cov",
+  "maturin>=1.0,<2.0",
   "mypy>=1,<2",
   "ruff~=0.12.10",
   "line-profiler>=4.0",
@@ -51,8 +52,13 @@ dev = [
   "pyinstrument>=5.0",
   "snakeviz>=2.1",
   "xxhash>=3.0",
-  "pytest-codspeed>=5.0.3",
+  "pytest-codspeed>=5.0.3"
 ]
+
+[tool.maturin]
+module-name = "cohorting._core"
+python-source = "src"
+manifest-path = "rust-core/Cargo.toml"
 
 [tool.pytest.ini_options]
 addopts = [

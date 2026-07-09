@@ -169,10 +169,12 @@ def test_experiment_xxhash_assign_string() -> None:
 
 
 def test_experiment_xxhash_hash_string() -> None:
-    """Experiment with xxhash=True hashes to the xxhash golden value."""
-    pytest.importorskip("xxhash")
+    """Experiment with xxhash=True hashes to the xxhash golden value.
+
+    Both backends are compiled into the Rust extension — no importorskip needed.
+    """
     exp = Experiment(name="exp", salt="exp", splits=ALL_IN_A, xxhash=True)
-    assert exp.hash("user_123") == pytest.approx(0.2554616495514273)
+    assert exp.hash("user_123") == pytest.approx(0.8382543487878418)
 
 
 def test_experiment_xxhash_differs_from_hashlib() -> None:

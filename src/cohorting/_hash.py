@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
-import hashlib as _hashlib
 import os
-import warnings
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast, overload
 
+from cohorting._core import (
+    hash_single as _rust_hash_single,
+)
+from cohorting._core import (
+    hash_strings as _rust_hash_strings,
+)
+from cohorting._core import (
+    random_float as _rust_random_float,
+)
+from cohorting._core import (
+    random_floats as _rust_random_floats,
+)
 from cohorting._models import _is_numpy_array, _is_pandas_series, _is_polars_series
 
 if TYPE_CHECKING:
@@ -19,196 +29,23 @@ if TYPE_CHECKING:
 _INV_2_64: float = 1.0 / (2**64)
 """Reciprocal of 2^64; multiplied instead of dividing to produce float in [0, 1)."""
 
-# Per-backend vectorized wrappers. Lazily initialized, one per (backend, cache) pair.
-_VEC_HASH_HASHLIB: Any = None
-_VEC_HASH_XXHASH: Any = None
-_VEC_HASH_HASHLIB_NOCACHE: Any = None
-_VEC_HASH_XXHASH_NOCACHE: Any = None
-
-# Opt-in xxhash backend. Set COHORTING_HASH_BACKEND=xxhash to enable.
-# Deliberately not auto-detected: just having xxhash installed should not silently
-# change hash outputs in existing deployments.
-_xxhash_mod: Any = None
 _USE_XXHASH: bool = False
 _USE_DETERMINISTIC: bool = True
 _USE_CACHE: bool = False
 
 if os.environ.get("COHORTING_HASH_BACKEND", "").lower() == "xxhash":
-    try:
-        import xxhash as _xxhash_mod
-
-        _USE_XXHASH = True
-    except ImportError:
-        warnings.warn(
-            "COHORTING_HASH_BACKEND=xxhash requested but xxhash is not installed; "
-            "falling back to hashlib. Install cohorting[xxhash] to enable xxhash.",
-            ImportWarning,
-            stacklevel=2,
-        )
-
-
-def _ensure_xxhash() -> None:
-    """Load the xxhash module on demand, raising ImportError if not installed.
-
-    Raises
-    ------
-    ImportError
-        If xxhash is not installed.
-    """
-    global _xxhash_mod
-    if _xxhash_mod is None:
-        try:
-            import xxhash as _xxhash_import
-
-            _xxhash_mod = _xxhash_import
-        except ImportError as exc:
-            raise ImportError(
-                "xxhash is not installed. Install: pip install 'cohorting[xxhash]'"
-            ) from exc
-
-
-def _compute_hashlib(x: str | int, sep_salt: bytes) -> float:
-    """Hash using hashlib blake2b — the raw computation, never cached.
-
-    Parameters
-    ----------
-    x : str | int
-        Identifier to hash. Integers are converted to their decimal string
-        representation before hashing, so ``123`` and ``"123"`` produce the
-        same value.
-    sep_salt : bytes
-        Pre-encoded b"\\x00" + salt bytes.
-
-    Returns
-    -------
-    float
-        Deterministic float in [0, 1).
-
-    Notes
-    -----
-    ``digest_size=8`` produces exactly 8 bytes (64 bits). ``int.from_bytes``
-    with ``"little"`` interprets those bytes as a little-endian unsigned 64-bit
-    integer, giving a value in ``[0, 2**64)``. Multiplying by ``_INV_2_64``
-    maps that range to ``[0, 1)`` with near-uniform distribution.
-    """
-    h = _hashlib.blake2b(digest_size=8)
-    h.update(x.encode() if isinstance(x, str) else str(x).encode())
-    h.update(sep_salt)
-    return int.from_bytes(h.digest(), "little") * _INV_2_64
+    _USE_XXHASH = True
 
 
 @lru_cache(maxsize=65_536)
-def _hash_hashlib(x: str | int, sep_salt: bytes) -> float:
-    """Cached wrapper around _compute_hashlib.
-
-    Parameters
-    ----------
-    x : str | int
-        Identifier to hash.
-    sep_salt : bytes
-        Pre-encoded b"\\x00" + salt bytes.
-
-    Returns
-    -------
-    float
-        Deterministic float in [0, 1).
-    """
-    return _compute_hashlib(x, sep_salt)
-
-
-def _compute_xxhash(x: str | int, sep_salt: bytes) -> float:
-    """Hash using xxhash xxh3_64 — the raw computation, never cached.
-
-    Parameters
-    ----------
-    x : str | int
-        Identifier to hash. Integers are converted to their decimal string
-        representation before hashing, so ``123`` and ``"123"`` produce the
-        same value.
-    sep_salt : bytes
-        Pre-encoded b"\\x00" + salt bytes.
-
-    Returns
-    -------
-    float
-        Deterministic float in [0, 1).
-    """
-    h = _xxhash_mod.xxh3_64()
-    h.update(x.encode() if isinstance(x, str) else str(x).encode())
-    h.update(sep_salt)
-    return h.intdigest() * _INV_2_64
-
-
-@lru_cache(maxsize=65_536)
-def _hash_xxhash(x: str | int, sep_salt: bytes) -> float:
-    """Cached wrapper around _compute_xxhash.
-
-    Parameters
-    ----------
-    x : str | int
-        Identifier to hash.
-    sep_salt : bytes
-        Pre-encoded b"\\x00" + salt bytes.
-
-    Returns
-    -------
-    float
-        Deterministic float in [0, 1).
-    """
-    return _compute_xxhash(x, sep_salt)
-
-
-def _hash_single(x: str | int, sep_salt: bytes) -> float:
-    """Route to the active global backend.
-
-    Parameters
-    ----------
-    x : str | int
-        Identifier to hash.
-    sep_salt : bytes
-        Pre-encoded b"\\x00" + salt bytes.
-
-    Returns
-    -------
-    float
-        Deterministic float in [0, 1).
-    """
-    return _hash_xxhash(x, sep_salt) if _USE_XXHASH else _hash_hashlib(x, sep_salt)
+def _cached_hash_single(x: str, sep_salt: bytes, use_xxhash: bool) -> float:
+    """Cached wrapper around the Rust hash_single."""
+    return _rust_hash_single(x, sep_salt, use_xxhash)
 
 
 def _random_float() -> float:
-    """Return a random float in [0, 1) sourced from OS entropy.
-
-    Uses ``os.urandom`` directly so the result is immune to any Python-level or
-    NumPy-level random seed (``random.seed``, ``numpy.random.seed``, etc.).
-    """
-    return int.from_bytes(os.urandom(8), "little") * _INV_2_64
-
-
-def _get_vec_hash(use_xxhash: bool, use_cache: bool) -> Any:
-    """Return a lazily-initialized np.vectorize wrapper for backend and cache mode."""
-    global \
-        _VEC_HASH_HASHLIB, \
-        _VEC_HASH_XXHASH, \
-        _VEC_HASH_HASHLIB_NOCACHE, \
-        _VEC_HASH_XXHASH_NOCACHE
-    import numpy as np
-
-    if use_xxhash:
-        if use_cache:
-            if _VEC_HASH_XXHASH is None:
-                _VEC_HASH_XXHASH = np.vectorize(_hash_xxhash, otypes=[float])
-            return _VEC_HASH_XXHASH
-        if _VEC_HASH_XXHASH_NOCACHE is None:
-            _VEC_HASH_XXHASH_NOCACHE = np.vectorize(_compute_xxhash, otypes=[float])
-        return _VEC_HASH_XXHASH_NOCACHE
-    if use_cache:
-        if _VEC_HASH_HASHLIB is None:
-            _VEC_HASH_HASHLIB = np.vectorize(_hash_hashlib, otypes=[float])
-        return _VEC_HASH_HASHLIB
-    if _VEC_HASH_HASHLIB_NOCACHE is None:
-        _VEC_HASH_HASHLIB_NOCACHE = np.vectorize(_compute_hashlib, otypes=[float])
-    return _VEC_HASH_HASHLIB_NOCACHE
+    """Return a random float in [0, 1) from OS entropy."""
+    return _rust_random_float()
 
 
 def _dispatch_hash(
@@ -230,12 +67,9 @@ def _dispatch_hash(
     use_xxhash : bool
         True for xxhash; False for hashlib. Unused when ``use_deterministic=False``.
     use_deterministic : bool
-        False to bypass hashing entirely and return OS-entropy random floats,
-        immune to any Python- or NumPy-level random seed.
+        False to bypass hashing entirely and return OS-entropy random floats.
     use_cache : bool
-        True to use LRU-cached hash functions. Useful when the same identifiers
-        appear repeatedly. False (default) avoids cache overhead for single-pass
-        workloads over unique identifiers.
+        True to use LRU-cached hash functions.
 
     Returns
     -------
@@ -249,13 +83,9 @@ def _dispatch_hash(
     """
     if not use_deterministic:
         if isinstance(data, (str, int)):
-            return _random_float()
+            return _rust_random_float()
         if isinstance(data, list):
-            raw_bytes = os.urandom(len(data) * 8)
-            return [
-                int.from_bytes(raw_bytes[i * 8 : (i + 1) * 8], "little") * _INV_2_64
-                for i in range(len(data))
-            ]
+            return _rust_random_floats(len(data))
         if _is_numpy_array(data):
             import numpy as np
 
@@ -288,39 +118,40 @@ def _dispatch_hash(
             f"got {type(data).__name__}"
         )
 
-    hash_fn = (
-        (_hash_xxhash if use_xxhash else _hash_hashlib)
-        if use_cache
-        else (_compute_xxhash if use_xxhash else _compute_hashlib)
-    )
-
     if isinstance(data, (str, int)):
-        # bool is a subclass of int; True == 1 == hash(True), so without
-        # normalization the LRU cache cannot distinguish True from 1.
         norm: str | int = int(data) if isinstance(data, bool) else data
-        return hash_fn(norm, sep_salt)
+        norm_str = str(norm)
+        if use_cache:
+            return _cached_hash_single(norm_str, sep_salt, use_xxhash)
+        return _rust_hash_single(norm_str, sep_salt, use_xxhash)
 
     if isinstance(data, list):
-        return [hash_fn(int(x) if isinstance(x, bool) else x, sep_salt) for x in data]
+        norm_list = [str(int(x) if isinstance(x, bool) else x) for x in data]
+        if use_cache:
+            return [_cached_hash_single(x, sep_salt, use_xxhash) for x in norm_list]
+        return _rust_hash_strings(norm_list, sep_salt, use_xxhash)
 
     if _is_numpy_array(data):
-        return _get_vec_hash(use_xxhash, use_cache)(data, sep_salt)
+        import numpy as np
+
+        flat = data.flatten()
+        str_ids = [str(int(x) if isinstance(x, bool) else x) for x in flat]
+        result_flat = _rust_hash_strings(str_ids, sep_salt, use_xxhash)
+        return np.array(result_flat, dtype=np.float64).reshape(data.shape)
 
     if _is_pandas_series(data):
         import pandas as pd
 
-        return pd.Series(
-            _get_vec_hash(use_xxhash, use_cache)(data.to_numpy(), sep_salt),
-            index=data.index,
-            name=data.name,
-        )
+        str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
+        result = _rust_hash_strings(str_ids, sep_salt, use_xxhash)
+        return pd.Series(result, index=data.index, name=data.name)
 
     if _is_polars_series(data):
         import polars as pl
 
-        return data.map_elements(
-            lambda x: hash_fn(x, sep_salt), return_dtype=pl.Float64
-        )
+        str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
+        result = _rust_hash_strings(str_ids, sep_salt, use_xxhash)
+        return pl.Series(name=data.name, values=result)
 
     raise TypeError(
         f"hash_values expected str, list, np.ndarray, pd.Series, or pl.Series; "
@@ -359,8 +190,8 @@ def hash_values(data: pl.Series, *, salt: str) -> pl.Series: ...
 def hash_values(data: Any, *, salt: str) -> Any:
     """Hash identifiers to deterministic floats in [0, 1).
 
-    The default backend is hashlib blake2b (always available). To use the faster
-    xxhash backend, set ``COHORTING_HASH_BACKEND=xxhash`` or call
+    The default backend is blake2b (always available, compiled in Rust).
+    To use the faster xxhash backend, set ``COHORTING_HASH_BACKEND=xxhash`` or call
     ``cohorting.config.xxhash = True`` before hashing. For high-throughput use
     cases, prefer :class:`cohorting.Experiment` — it computes the salt bytes once
     at construction rather than on every call.

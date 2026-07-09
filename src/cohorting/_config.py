@@ -50,25 +50,20 @@ class _Config:
         Parameters
         ----------
         enable : bool
-            True to switch to xxhash; False to revert to hashlib. Clears the
+            True to switch to xxhash; False to revert to blake2b. Clears the
             hash and assign caches on every call to prevent mixed-backend results.
 
-        Raises
-        ------
-        ImportError
-            If enable=True and xxhash is not installed.
+        Notes
+        -----
+        Both blake2b and xxhash backends are compiled into the Rust extension.
+        No extra Python package is required for xxhash.
         """
         import cohorting._cohort as _cohort_mod
         import cohorting._hash as _hash_mod
 
-        if enable:
-            _hash_mod._ensure_xxhash()
-
         _hash_mod._USE_XXHASH = enable
-        _hash_mod._hash_hashlib.cache_clear()
-        _hash_mod._hash_xxhash.cache_clear()
-        _cohort_mod._assign_hashlib.cache_clear()
-        _cohort_mod._assign_xxhash.cache_clear()
+        _hash_mod._cached_hash_single.cache_clear()
+        _cohort_mod._cached_assign_single.cache_clear()
 
     @property
     def deterministic(self) -> bool:
@@ -97,10 +92,8 @@ class _Config:
         import cohorting._hash as _hash_mod
 
         _hash_mod._USE_DETERMINISTIC = enable
-        _hash_mod._hash_hashlib.cache_clear()
-        _hash_mod._hash_xxhash.cache_clear()
-        _cohort_mod._assign_hashlib.cache_clear()
-        _cohort_mod._assign_xxhash.cache_clear()
+        _hash_mod._cached_hash_single.cache_clear()
+        _cohort_mod._cached_assign_single.cache_clear()
 
     @property
     def cache(self) -> bool:
@@ -132,10 +125,8 @@ class _Config:
         import cohorting._hash as _hash_mod
 
         _hash_mod._USE_CACHE = enable
-        _hash_mod._hash_hashlib.cache_clear()
-        _hash_mod._hash_xxhash.cache_clear()
-        _cohort_mod._assign_hashlib.cache_clear()
-        _cohort_mod._assign_xxhash.cache_clear()
+        _hash_mod._cached_hash_single.cache_clear()
+        _cohort_mod._cached_assign_single.cache_clear()
 
 
 config: _Config = _Config()

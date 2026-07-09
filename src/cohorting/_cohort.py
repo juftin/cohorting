@@ -7,12 +7,17 @@ from functools import cache, lru_cache
 from typing import TYPE_CHECKING, Any, cast, overload
 
 import cohorting._hash as _hash_mod
-from cohorting._hash import (
-    _compute_hashlib,
-    _compute_xxhash,
-    _hash_hashlib,
-    _hash_xxhash,
-    _random_float,
+from cohorting._core import (
+    assign_single as _rust_assign_single,
+)
+from cohorting._core import (
+    assign_strings as _rust_assign_strings,
+)
+from cohorting._core import (
+    random_float as _rust_random_float,
+)
+from cohorting._core import (
+    random_floats as _rust_random_floats,
 )
 from cohorting._models import (
     SplitInput,
@@ -74,13 +79,37 @@ def _get_lower_bounds(sorted_bounds: _SortedBounds) -> tuple[float, ...]:
     return tuple(b[1] for b in sorted_bounds)
 
 
-def _lookup_cohort(hash_val: float, sorted_bounds: _SortedBounds) -> str:
-    """Map a hash float to a cohort name via bisect.
+@cache
+def _get_cohort_names(sorted_bounds: _SortedBounds) -> tuple[str, ...]:
+    """Extract cohort names in sorted order, cached per unique experiment config.
 
     Parameters
     ----------
-    hash_val : float
-        Value in [0, 1) produced by a hash function.
+    sorted_bounds : _SortedBounds
+        Pre-sorted cohort bounds.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Cohort names in sorted order.
+    """
+    return tuple(b[0] for b in sorted_bounds)
+
+
+@lru_cache(maxsize=65_536)
+def _cached_assign_single(
+    x: str, sep_salt: bytes, use_xxhash: bool, sorted_bounds: _SortedBounds
+) -> str:
+    """Cached hash + assign via Rust.
+
+    Parameters
+    ----------
+    x : str
+        Identifier.
+    sep_salt : bytes
+        Pre-encoded b"\\x00" + salt bytes.
+    use_xxhash : bool
+        True for xxhash backend.
     sorted_bounds : _SortedBounds
         Pre-sorted cohort bounds.
 
@@ -90,54 +119,8 @@ def _lookup_cohort(hash_val: float, sorted_bounds: _SortedBounds) -> str:
         Cohort name.
     """
     lowers = _get_lower_bounds(sorted_bounds)
-    # bisect_right returns the insertion point after any equal values, so
-    # subtracting 1 gives the rightmost bucket whose lower bound is ≤ hash_val.
-    return sorted_bounds[bisect.bisect_right(lowers, hash_val) - 1][0]
-
-
-@lru_cache(maxsize=65_536)
-def _assign_hashlib(x: str | int, sep_salt: bytes, sorted_bounds: _SortedBounds) -> str:
-    """Hash + assign using the hashlib backend, cached.
-
-    Caches the full ``(identifier, salt, bounds) → cohort`` result so repeat
-    callers skip both the hash computation and the bisect lookup in one step.
-
-    Parameters
-    ----------
-    x : str | int
-        Identifier.
-    sep_salt : bytes
-        Pre-encoded b"\\x00" + salt bytes.
-    sorted_bounds : _SortedBounds
-        Pre-sorted cohort bounds.
-
-    Returns
-    -------
-    str
-        Cohort name.
-    """
-    return _lookup_cohort(_hash_hashlib(x, sep_salt), sorted_bounds)
-
-
-@lru_cache(maxsize=65_536)
-def _assign_xxhash(x: str | int, sep_salt: bytes, sorted_bounds: _SortedBounds) -> str:
-    """Hash + assign using the xxhash backend, cached.
-
-    Parameters
-    ----------
-    x : str | int
-        Identifier.
-    sep_salt : bytes
-        Pre-encoded b"\\x00" + salt bytes.
-    sorted_bounds : _SortedBounds
-        Pre-sorted cohort bounds.
-
-    Returns
-    -------
-    str
-        Cohort name.
-    """
-    return _lookup_cohort(_hash_xxhash(x, sep_salt), sorted_bounds)
+    names = _get_cohort_names(sorted_bounds)
+    return _rust_assign_single(x, sep_salt, use_xxhash, list(names), list(lowers))
 
 
 def _dispatch_assign(
@@ -163,10 +146,9 @@ def _dispatch_assign(
         True for xxhash; False for hashlib. Unused when ``use_deterministic=False``.
     use_deterministic : bool
         False to bypass hashing and assign each identifier to a randomly chosen cohort
-        using OS entropy, immune to any Python- or NumPy-level random seed.
+        using OS entropy.
     use_cache : bool
-        True to use LRU-cached assign functions. False bypasses both the assign cache
-        and the underlying hash cache.
+        True to use LRU-cached assign functions.
 
     Returns
     -------
@@ -179,138 +161,92 @@ def _dispatch_assign(
         If data is not one of the supported input types.
     """
     if not use_deterministic:
+        _lowers = _get_lower_bounds(sorted_bounds)
+        _names_list = list(_get_cohort_names(sorted_bounds))
+
+        def _random_assign(hash_val: float) -> str:
+            idx = bisect.bisect_right(_lowers, hash_val) - 1
+            return _names_list[idx]
+
         if isinstance(data, (str, int)):
-            return _lookup_cohort(_random_float(), sorted_bounds)
+            return _random_assign(_rust_random_float())
         if isinstance(data, list):
-            return [_lookup_cohort(_random_float(), sorted_bounds) for _ in data]
+            return [_random_assign(_rust_random_float()) for _ in data]
         if _is_numpy_array(data):
-            import numpy as np
+            import numpy as _np
 
-            return np.vectorize(
-                lambda _: _lookup_cohort(_random_float(), sorted_bounds),
-                otypes=[str],
-            )(data)
+            floats = _rust_random_floats(data.size)
+            names_arr = _np.array(_names_list)
+            indices = _np.searchsorted(_lowers, floats, side="right") - 1
+            return names_arr[indices].reshape(data.shape)
         if _is_pandas_series(data):
-            import numpy as np
-            import pandas as pd
+            import numpy as _np
+            import pandas as _pd
 
-            return pd.Series(
-                data=np.vectorize(
-                    lambda _: _lookup_cohort(_random_float(), sorted_bounds),
-                    otypes=[str],
-                )(data.to_numpy()),
-                index=data.index,
-                name=data.name,
-            )
+            floats = _rust_random_floats(len(data))
+            names_arr = _np.array(_names_list)
+            indices = _np.searchsorted(_lowers, floats, side="right") - 1
+            return _pd.Series(names_arr[indices], index=data.index, name=data.name)
         if _is_polars_series(data):
-            import polars as pl
+            import polars as _pl
 
-            return data.map_elements(
-                lambda _: _lookup_cohort(_random_float(), sorted_bounds),
-                return_dtype=pl.String,
-            )
+            floats = _rust_random_floats(len(data))
+            result = [_names_list[bisect.bisect_right(_lowers, f) - 1] for f in floats]
+            return _pl.Series(name=data.name, values=result)
         raise TypeError(
             f"assign_cohorts expected str, list, np.ndarray, pd.Series, or pl.Series; "
             f"got {type(data).__name__}"
         )
 
-    if not use_cache:
-        compute_fn = _compute_xxhash if use_xxhash else _compute_hashlib
-        lowers = _get_lower_bounds(sorted_bounds)
-        _bisect = bisect.bisect_right
-        if isinstance(data, (str, int)):
-            norm: str | int = int(data) if isinstance(data, bool) else data
-            return sorted_bounds[_bisect(lowers, compute_fn(norm, sep_salt)) - 1][0]
-        if isinstance(data, list):
-            return [
-                sorted_bounds[
-                    _bisect(
-                        lowers,
-                        compute_fn(int(x) if isinstance(x, bool) else x, sep_salt),
-                    )
-                    - 1
-                ][0]
-                for x in data
-            ]
-        if _is_numpy_array(data):
-            import numpy as np
-
-            return np.vectorize(
-                lambda x: sorted_bounds[_bisect(lowers, compute_fn(x, sep_salt)) - 1][
-                    0
-                ],
-                otypes=[str],
-            )(data)
-        if _is_pandas_series(data):
-            import numpy as np
-            import pandas as pd
-
-            return pd.Series(
-                data=np.vectorize(
-                    lambda x: sorted_bounds[
-                        _bisect(lowers, compute_fn(x, sep_salt)) - 1
-                    ][0],
-                    otypes=[str],
-                )(data.to_numpy()),
-                index=data.index,
-                name=data.name,
-            )
-        if _is_polars_series(data):
-            import polars as pl
-
-            return data.map_elements(
-                lambda x: sorted_bounds[_bisect(lowers, compute_fn(x, sep_salt)) - 1][
-                    0
-                ],
-                return_dtype=pl.String,
-            )
-        raise TypeError(
-            f"assign_cohorts expected str, list, np.ndarray, pd.Series, or pl.Series; "
-            f"got {type(data).__name__}"
-        )
-
-    assign_fn = _assign_xxhash if use_xxhash else _assign_hashlib
+    lowers = _get_lower_bounds(sorted_bounds)
+    names = _get_cohort_names(sorted_bounds)
 
     if isinstance(data, (str, int)):
-        # bool is a subclass of int; True == 1 == hash(True), so without
-        # normalization the LRU cache cannot distinguish True from 1.
-        norm2: str | int = int(data) if isinstance(data, bool) else data
-        return assign_fn(norm2, sep_salt, sorted_bounds)
+        norm: str | int = int(data) if isinstance(data, bool) else data
+        norm_str = str(norm)
+        if use_cache:
+            return _cached_assign_single(norm_str, sep_salt, use_xxhash, sorted_bounds)
+        return _rust_assign_single(
+            norm_str, sep_salt, use_xxhash, list(names), list(lowers)
+        )
 
     if isinstance(data, list):
-        return [
-            assign_fn(int(x) if isinstance(x, bool) else x, sep_salt, sorted_bounds)
-            for x in data
-        ]
+        norm_list = [str(int(x) if isinstance(x, bool) else x) for x in data]
+        if use_cache:
+            return [
+                _cached_assign_single(x, sep_salt, use_xxhash, sorted_bounds)
+                for x in norm_list
+            ]
+        return _rust_assign_strings(
+            norm_list, sep_salt, use_xxhash, list(names), list(lowers)
+        )
 
     if _is_numpy_array(data):
-        import numpy as np
+        str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data.flat]
+        result = _rust_assign_strings(
+            str_ids, sep_salt, use_xxhash, list(names), list(lowers)
+        )
+        import numpy as _np
 
-        return np.vectorize(
-            lambda x: assign_fn(x, sep_salt, sorted_bounds),
-            otypes=[str],
-        )(data)
+        return _np.array(result).reshape(data.shape)
 
     if _is_pandas_series(data):
-        import numpy as np
-        import pandas as pd
+        import pandas as _pd
 
-        return pd.Series(
-            np.vectorize(
-                lambda x: assign_fn(x, sep_salt, sorted_bounds),
-                otypes=[str],
-            )(data.to_numpy()),
-            index=data.index,
-            name=data.name,
+        str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
+        result = _rust_assign_strings(
+            str_ids, sep_salt, use_xxhash, list(names), list(lowers)
         )
+        return _pd.Series(result, index=data.index, name=data.name)
 
     if _is_polars_series(data):
-        import polars as pl
+        import polars as _pl
 
-        return data.map_elements(
-            lambda x: assign_fn(x, sep_salt, sorted_bounds),
-            return_dtype=pl.String,
+        str_ids = [str(int(x) if isinstance(x, bool) else x) for x in data]
+        result = _rust_assign_strings(
+            str_ids, sep_salt, use_xxhash, list(names), list(lowers)
         )
+        return _pl.Series(name=data.name, values=result)
 
     raise TypeError(
         f"assign_cohorts expected str, list, np.ndarray, pd.Series, or pl.Series; "
