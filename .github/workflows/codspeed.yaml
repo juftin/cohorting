@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: codspeed
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+    workflow_dispatch:
+
+jobs:
+    benchmarks:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - name: setup
+              uses: juftin/actions/taskfile@v1
+              with:
+                  checkout: true
+                  setup-uv: true
+                  install: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+            - name: benchmarks
+              uses: CodSpeedHQ/action@2b0e1f226b9d25346ac4a6b9f4897375aca5939c # v4
+              with:
+                  mode: simulation
+                  run: task benchmarks

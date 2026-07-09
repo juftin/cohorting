@@ -22,6 +22,12 @@ tasks:
             - task: pre-commit-install
             - task: sync
     #######################################
+    benchmarks:
+        desc: Run Performance Benchmarks
+        cmds:
+            - uv run pytest tests/test_benchmarks.py --codspeed -o addopts=""
+        deps: [sync]
+    #######################################
     test:
         desc: Run Tests
         cmds:

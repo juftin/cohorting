@@ -50,7 +50,8 @@ dev = [
   "polars>=0.20",
   "pyinstrument>=5.0",
   "snakeviz>=2.1",
-  "xxhash>=3.0"
+  "xxhash>=3.0",
+  "pytest-codspeed>=5.0.3",
 ]
 
 [tool.pytest.ini_options]
