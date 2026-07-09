@@ -546,22 +546,28 @@ mod tests {
 - Test that non-deterministic mode produces values in [0, 1)
 - Test that split validation still raises correct errors (validation stays in Python)
 
-#### Performance Regression Tests
+#### Performance Regression Tests (CodSpeed)
 
-- Add a CI job that runs `benchmark.py` and asserts throughput >= threshold for each
-  input type and size
-- Compare Rust vs pure-Python throughput; flag if Rust isn't at least 3× faster for
-  arrays/series
+The `.github/workflows/codspeed.yaml` workflow runs `tests/test_benchmarks.py` on every
+push to `main` and every PR. CodSpeed detects performance regressions by comparing wall-clock
+times against the baseline.
+
+The existing benchmark suite covers all the hot paths that the Rust migration touches:
+single and batch hashing, single and batch assignment, numpy/pandas/polars backends,
+xxhash mode, ORM assignment, and `Experiment` construction.
+
+Post-migration, CodSpeed becomes the enforcement mechanism — any PR that slows down a
+hot path relative to the Rust baseline is flagged automatically.
 
 ### 14. Rollout Plan
 
 #### Phase 0: Baselining (pre-Rust)
 
-| Step                         | What                                                                                                                                                                                                         | Why                                                                                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **0a. Test coverage audit**  | Ensure the existing test suite covers all public API paths: every input type, every backend, deterministic + non-deterministic, cache on/off, edge cases (empty strings, bools, ints, unicode, large inputs) | The existing test suite becomes the acceptance suite for the Rust implementation — if tests pass against Rust, the migration is correct |
-| **0b. Performance baseline** | Run `benchmark.py` across all scenarios and record results as `scripts/profiling/results/baseline_python.json`                                                                                               | Quantifies the speedup; confirms the Rust implementation isn't missing a fast path that Python had                                      |
-| **0c. Hash output snapshot** | For a fixed set of (id, salt) pairs, record the Python hash outputs as `scripts/profiling/results/hash_snapshot_python.json`                                                                                 | These values WILL change in Rust (zerover allows breaking hashing). The snapshot is documentation of what changed, not a constraint     |
+| Step                         | What                                                                                                                                                                                                                     | Why                                                                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0a. Test coverage audit**  | Ensure the existing test suite covers all public API paths: every input type, every backend, deterministic + non-deterministic, cache on/off, edge cases (empty strings, bools, ints, unicode, large inputs)             | The existing test suite becomes the acceptance suite for the Rust implementation — if tests pass against Rust, the migration is correct       |
+| **0b. Performance baseline** | Run `tests/test_benchmarks.py` via CodSpeed (`task benchmarks`) to capture per-benchmark wall-clock times in the CodSpeed dashboard. These become the pre-Rust baseline that every subsequent commit is compared against | CodSpeed detects regressions automatically on PRs — the Rust migration should show speedups across every benchmark, any slowdown is a blocker |
+| **0c. Hash output snapshot** | For a fixed set of (id, salt) pairs, record the Python hash outputs as `scripts/profiling/results/hash_snapshot_python.json`                                                                                             | These values WILL change in Rust (zerover allows breaking hashing). The snapshot is documentation of what changed, not a constraint           |
 
 #### Phase 1–5: Implementation
 
@@ -576,7 +582,7 @@ mod tests {
 #### Verification at each phase
 
 1. Existing Python test suite must pass (the Phase 0 audit ensures it's comprehensive)
-2. `benchmark.py` must show throughput >= Python baseline for every scenario
+2. CodSpeed must show no regressions vs the Phase 0 Python baseline (and speedups on all hot-path benchmarks)
 3. New Rust unit tests for edge cases discovered during Phase 0a
 
 ### 15. Open Questions
