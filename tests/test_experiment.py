@@ -149,9 +149,9 @@ def test_experiment_repr() -> None:
 
 
 def test_experiment_hash_golden_value() -> None:
-    """Experiment.hash produces the xxh3_64 golden value."""
+    """Experiment.hash produces the SipHash golden value."""
     exp = Experiment(name="exp", salt="exp", splits=ALL_IN_A)
-    assert exp.hash("user_123") == pytest.approx(0.8382543487878418)
+    assert exp.hash("user_123") == pytest.approx(0.35566264921558755)
 
 
 # --- ORM methods ---

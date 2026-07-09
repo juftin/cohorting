@@ -1,18 +1,32 @@
+use std::hash::Hasher;
+
 use numpy::{PyArray1, PyArrayMethods};
 use pyo3::prelude::*;
-use twox_hash::xxh3;
+use siphasher::sip::SipHasher13;
 
 use crate::utils::INV_2_64;
 
-/// Hash a single identifier to a float in [0, 1) using xxh3_64.
+/// Derive a SipHash 128-bit key from the sep_salt bytes.
+#[inline]
+fn salt_to_key(sep_salt: &[u8]) -> (u64, u64) {
+    let mut key_bytes = [0u8; 16];
+    let len = sep_salt.len().min(16);
+    key_bytes[..len].copy_from_slice(&sep_salt[..len]);
+    let k0 = u64::from_le_bytes(key_bytes[..8].try_into().unwrap());
+    let k1 = u64::from_le_bytes(key_bytes[8..].try_into().unwrap());
+    (k0, k1)
+}
+
+/// Hash a single identifier to a float in [0, 1) using SipHash 1-3.
 ///
-/// sep_salt is the pre-encoded b"\x00" + salt bytes from Python.
+/// sep_salt is used as the SipHash key. The identifier bytes are the
+/// data being hashed — no concatenation needed.
 #[inline]
 pub fn hash_single_inner(id_bytes: &[u8], sep_salt: &[u8]) -> f64 {
-    let mut buf = Vec::with_capacity(id_bytes.len() + sep_salt.len());
-    buf.extend_from_slice(id_bytes);
-    buf.extend_from_slice(sep_salt);
-    xxh3::hash64(&buf) as f64 * INV_2_64
+    let (k0, k1) = salt_to_key(sep_salt);
+    let mut hasher = SipHasher13::new_with_keys(k0, k1);
+    hasher.write(id_bytes);
+    hasher.finish() as f64 * INV_2_64
 }
 
 /// Hash a single string identifier to a float in [0, 1).
@@ -24,8 +38,13 @@ pub fn hash_single(id: String, sep_salt: Vec<u8>) -> f64 {
 /// Hash a list of string identifiers to floats in [0, 1).
 #[pyfunction]
 pub fn hash_strings(ids: Vec<String>, sep_salt: Vec<u8>) -> Vec<f64> {
+    let (k0, k1) = salt_to_key(&sep_salt);
     ids.iter()
-        .map(|id| hash_single_inner(id.as_bytes(), &sep_salt))
+        .map(|id| {
+            let mut hasher = SipHasher13::new_with_keys(k0, k1);
+            hasher.write(id.as_bytes());
+            hasher.finish() as f64 * INV_2_64
+        })
         .collect()
 }
 
@@ -54,6 +73,7 @@ pub fn hash_numpy<'py>(
     ids: Bound<'py, PyAny>,
     sep_salt: Vec<u8>,
 ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    let (k0, k1) = salt_to_key(&sep_salt);
     let flat = ids.call_method0("flatten")?;
     let strings: Vec<String> = flat.call_method0("tolist")?.extract()?;
     let n = strings.len();
@@ -61,7 +81,9 @@ pub fn hash_numpy<'py>(
     unsafe {
         let out_slice = out.as_slice_mut().unwrap();
         for (i, s) in strings.iter().enumerate() {
-            out_slice[i] = hash_single_inner(s.as_bytes(), &sep_salt);
+            let mut hasher = SipHasher13::new_with_keys(k0, k1);
+            hasher.write(s.as_bytes());
+            out_slice[i] = hasher.finish() as f64 * INV_2_64;
         }
     }
     Ok(out)

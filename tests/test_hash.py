@@ -12,9 +12,9 @@ from cohorting._hash import hash_orm, hash_values
 def test_hash_known_value() -> None:
     """Hash produces the expected deterministic float.
 
-    Golden value: xxh3_64 one-shot over "user_123" + b"\\x00exp", hash64 / 2^64.
+    Golden value: SipHash 1-3 with sep_salt as key over "user_123".
     """
-    assert hash_values("user_123", salt="exp") == 0.8382543487878418
+    assert hash_values("user_123", salt="exp") == 0.35566264921558755
 
 
 def test_hash_single_string_returns_float() -> None:

@@ -9,6 +9,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = {version = "0.23", features = ["extension-module"]}
-twox-hash = "1.6"
+siphasher = "1.0"
 numpy = "0.23"
 getrandom = "0.2"

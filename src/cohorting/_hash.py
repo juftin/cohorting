@@ -167,7 +167,7 @@ def hash_values(data: pl.Series, *, salt: str) -> pl.Series: ...
 def hash_values(data: Any, *, salt: str) -> Any:
     """Hash identifiers to deterministic floats in [0, 1).
 
-    Uses the xxh3_64 algorithm compiled in Rust for high throughput.
+    Uses the SipHash 1-3 algorithm compiled in Rust for high throughput.
     For high-throughput use cases, prefer :class:`cohorting.Experiment` —
     it computes the salt bytes once at construction rather than on every call.
 
