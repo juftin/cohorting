@@ -8,15 +8,17 @@ on:
             - main
         paths:
             - src/cohorting/**
+            - rust-core/**
             - pyproject.toml
             - uv.lock
-            - .github/workflows/tests.yaml
+            - .github/workflows/test.yaml
     pull_request:
         paths:
             - src/cohorting/**
+            - rust-core/**
             - pyproject.toml
             - uv.lock
-            - .github/workflows/tests.yaml
+            - .github/workflows/test.yaml
     schedule:
         - cron: 0 12 1 * *
 
@@ -37,6 +39,7 @@ jobs:
             id-token: write
             pull-requests: write
         steps:
+            - uses: dtolnay/rust-toolchain@stable
             - name: test
               uses: juftin/actions/taskfile@v1
               with:

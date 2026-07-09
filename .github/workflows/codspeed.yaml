@@ -16,6 +16,7 @@ jobs:
             contents: read
             id-token: write
         steps:
+            - uses: dtolnay/rust-toolchain@stable
             - name: setup
               uses: juftin/actions/taskfile@v1
               with:
