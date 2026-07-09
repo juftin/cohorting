@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from cohorting._models import CohortSplit, SplitMap
+from cohorting._models import CohortSplit, SplitInput, SplitMap
 from cohorting.experiment import Experiment
 
 FIFTY_FIFTY: SplitMap = {
@@ -14,7 +14,7 @@ FIFTY_FIFTY: SplitMap = {
     "treatment": {"lower": 0.5, "upper": 1.0},
 }
 
-ALL_IN_A: SplitMap = {"a": {"lower": 0.0, "upper": 1.0}}
+ALL_IN_A: SplitInput = {"a": {"lower": 0.0, "upper": 1.0}}
 
 
 def test_experiment_constructs_with_dict_splits() -> None:
@@ -27,7 +27,7 @@ def test_experiment_constructs_with_dict_splits() -> None:
 
 def test_experiment_constructs_with_list_splits() -> None:
     """Experiment can be constructed with a list of CohortSplit instances."""
-    splits = [
+    splits: SplitInput = [
         CohortSplit(name="control", lower=0.0, upper=0.5),
         CohortSplit(name="treatment", lower=0.5, upper=1.0),
     ]

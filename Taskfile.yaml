@@ -73,7 +73,7 @@ tasks:
                 uv run -- \
                 mypy \
                   --ignore-missing-imports \
-                  {{.CLI_ARGS | default .SOURCE_CODE}}
+                  {{.CLI_ARGS | default .ROOT_DIR}}
         status:
             - '[$(uv tree --package mypy) != ""]'
         requires:

@@ -1,5 +1,8 @@
 """Tests for cohorting data models and type detection helpers."""
 
+import numpy as np
+import pandas as pd
+import polars as pl
 import pytest
 
 from cohorting._models import (
@@ -120,57 +123,48 @@ def test_is_polars_series_false_for_plain_types() -> None:
 
 def test_is_pandas_series_true() -> None:
     """_is_pandas_series returns True for pd.Series."""
-    pd = pytest.importorskip("pandas")
     assert _is_pandas_series(pd.Series(["a", "b"])) is True
 
 
 def test_is_pandas_series_false_for_dataframe() -> None:
     """_is_pandas_series returns False for pd.DataFrame."""
-    pd = pytest.importorskip("pandas")
     assert _is_pandas_series(pd.DataFrame({"a": [1]})) is False
 
 
 def test_is_pandas_frame_true() -> None:
     """_is_pandas_frame returns True for pd.DataFrame."""
-    pd = pytest.importorskip("pandas")
     assert _is_pandas_frame(pd.DataFrame({"a": [1]})) is True
 
 
 def test_is_pandas_frame_false_for_series() -> None:
     """_is_pandas_frame returns False for pd.Series."""
-    pd = pytest.importorskip("pandas")
     assert _is_pandas_frame(pd.Series([1, 2])) is False
 
 
 def test_is_polars_series_true() -> None:
     """_is_polars_series returns True for pl.Series."""
-    pl = pytest.importorskip("polars")
     assert _is_polars_series(pl.Series("a", [1, 2, 3])) is True
 
 
 def test_is_polars_series_false_for_dataframe() -> None:
     """_is_polars_series returns False for pl.DataFrame."""
-    pl = pytest.importorskip("polars")
     assert _is_polars_series(pl.DataFrame({"a": [1]})) is False
 
 
 def test_is_polars_frame_true() -> None:
     """_is_polars_frame returns True for pl.DataFrame."""
-    pl = pytest.importorskip("polars")
     assert _is_polars_frame(pl.DataFrame({"a": [1]})) is True
 
 
 def test_is_polars_frame_false_for_series() -> None:
     """_is_polars_frame returns False for pl.Series."""
-    pl = pytest.importorskip("polars")
     assert _is_polars_frame(pl.Series("a", [1])) is False
 
 
 def test_is_pandas_series_true_for_subclass() -> None:
     """_is_pandas_series detects subclasses of pd.Series."""
-    pd = pytest.importorskip("pandas")
 
-    class MySeries(pd.Series):  # type: ignore[misc]
+    class MySeries(pd.Series):
         pass
 
     assert _is_pandas_series(MySeries(["a", "b"])) is True
@@ -178,9 +172,8 @@ def test_is_pandas_series_true_for_subclass() -> None:
 
 def test_is_pandas_frame_true_for_subclass() -> None:
     """_is_pandas_frame detects subclasses of pd.DataFrame."""
-    pd = pytest.importorskip("pandas")
 
-    class MyFrame(pd.DataFrame):  # type: ignore[misc]
+    class MyFrame(pd.DataFrame):
         pass
 
     assert _is_pandas_frame(MyFrame({"a": [1]})) is True
@@ -188,7 +181,5 @@ def test_is_pandas_frame_true_for_subclass() -> None:
 
 def test_is_numpy_array_true_for_subclass() -> None:
     """_is_numpy_array detects subclasses of np.ndarray (e.g. MaskedArray)."""
-    np = pytest.importorskip("numpy")
-
     masked = np.ma.array([1, 2, 3], mask=[False, True, False])
     assert _is_numpy_array(masked) is True
