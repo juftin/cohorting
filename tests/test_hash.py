@@ -9,32 +9,12 @@ import pytest
 from cohorting._hash import hash_orm, hash_values
 
 
-def test_hash_hashlib_known_value() -> None:
-    """Default hashlib backend produces the expected deterministic float.
+def test_hash_known_value() -> None:
+    """Hash produces the expected deterministic float.
 
-    Golden value: blake2b(digest_size=8) over "user_123" + b"\\x00exp",
-    little-endian uint64 / 2^64.
+    Golden value: SipHash 1-3 with sep_salt as key over "user_123".
     """
-    expected = 0.696812739744522
-    assert hash_values("user_123", salt="exp") == expected
-
-
-def test_hash_xxhash_known_value() -> None:
-    """xxhash backend produces the expected deterministic float.
-
-    Golden value: xxh3_64 streaming "user_123" + b"\\x00exp", intdigest / 2^64.
-    Only runs when xxhash is installed.
-    """
-    pytest.importorskip("xxhash")
-    from cohorting import config, hash_values
-
-    config.xxhash = True
-    try:
-        result = hash_values("user_123", salt="exp")
-    finally:
-        config.xxhash = False
-
-    assert result == 0.2554616495514273
+    assert hash_values("user_123", salt="exp") == 0.35566264921558755
 
 
 def test_hash_single_string_returns_float() -> None:
@@ -324,9 +304,9 @@ def test_hash_bool_true_equals_int_one() -> None:
     the fix, hash_values(True) returns the cached result for 1 (or vice versa),
     breaking determinism depending on call order.
     """
-    from cohorting._hash import _hash_hashlib
+    from cohorting._hash import _cached_hash_single
 
-    _hash_hashlib.cache_clear()
+    _cached_hash_single.cache_clear()
     h_int = hash_values(data=1, salt="exp")
     h_bool = hash_values(data=True, salt="exp")
     assert h_int == h_bool
@@ -334,9 +314,9 @@ def test_hash_bool_true_equals_int_one() -> None:
 
 def test_hash_bool_false_equals_int_zero() -> None:
     """hash_values(False) normalizes to int(0) and matches hash_values(0)."""
-    from cohorting._hash import _hash_hashlib
+    from cohorting._hash import _cached_hash_single
 
-    _hash_hashlib.cache_clear()
+    _cached_hash_single.cache_clear()
     assert hash_values(data=0, salt="exp") == hash_values(data=False, salt="exp")
 
 
@@ -377,13 +357,13 @@ def test_hash_cache_restored_after_toggle() -> None:
 
 def test_hash_bool_cache_order_independent() -> None:
     """bool/int result is the same regardless of which is called first."""
-    from cohorting._hash import _hash_hashlib
+    from cohorting._hash import _cached_hash_single
 
-    _hash_hashlib.cache_clear()
+    _cached_hash_single.cache_clear()
     first_bool = hash_values(data=True, salt="exp")
     first_int = hash_values(data=1, salt="exp")
 
-    _hash_hashlib.cache_clear()
+    _cached_hash_single.cache_clear()
     second_int = hash_values(data=1, salt="exp")
     second_bool = hash_values(data=True, salt="exp")
 

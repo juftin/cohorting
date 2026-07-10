@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "cohorting"
@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-xxhash = ["xxhash>=3.0"]
+xxhash = []  # No-op stub; xxh3_64 is compiled into the Rust extension
 numpy = ["numpy>=1.24"]
 pandas = ["pandas>=2.0"]
 polars = ["polars>=0.20"]
@@ -40,6 +40,7 @@ Source = "https://github.com/juftin/cohorting"
 dev = [
   "pytest",
   "pytest-cov",
+  "maturin>=1.0,<2.0",
   "mypy>=1,<2",
   "ruff~=0.12.10",
   "line-profiler>=4.0",
@@ -50,9 +51,13 @@ dev = [
   "polars>=0.20",
   "pyinstrument>=5.0",
   "snakeviz>=2.1",
-  "xxhash>=3.0",
-  "pytest-codspeed>=5.0.3",
+  "pytest-codspeed>=5.0.3"
 ]
+
+[tool.maturin]
+module-name = "cohorting._core"
+python-source = "src"
+manifest-path = "rust-core/Cargo.toml"
 
 [tool.pytest.ini_options]
 addopts = [

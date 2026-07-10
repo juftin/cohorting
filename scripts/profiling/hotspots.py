@@ -41,12 +41,11 @@ def _make_ids(n: int) -> list[str]:
     return [f"user_{i}" for i in range(n)]
 
 
-def _make_exp(*, xxhash: bool = False) -> Experiment:
+def _make_exp() -> Experiment:
     """Construct a two-cohort experiment with cache disabled."""
     return Experiment(
         name="profile",
         splits=even_split(names=["control", "treatment"]),
-        xxhash=xxhash,
         cache=False,
     )
 
@@ -238,25 +237,17 @@ def _run_backend(backend: str, exp: Experiment, ids: list[str]) -> None:
 
 
 def run() -> None:
-    """Run all profiling scenarios (both backends, all input types) and save results."""
+    """Run all profiling scenarios (all input types) and save results."""
     print(f"Profiling cohorting.Experiment.assign()  N={N:,}  SORT_BY={SORT_BY!r}")
     print(f"Results: {RESULTS_DIR.resolve()}")
 
     ids = _make_ids(N)
 
-    print("\n\n--- hashlib backend ---")
-    _run_backend("hashlib", _make_exp(xxhash=False), ids)
-
-    print("\n\n--- xxhash backend ---")
-    try:
-        _run_backend("xxhash", _make_exp(xxhash=True), ids)
-    except ImportError:
-        print("xxhash not installed — skipping (install with: uv add xxhash)")
+    print("\n\n--- SipHash backend ---")
+    _run_backend("siphash", _make_exp(), ids)
 
     stems = [
-        f"{input_type}_{backend}"
-        for input_type in ("list", "numpy", "pandas", "polars")
-        for backend in ("hashlib", "xxhash")
+        f"{input_type}_siphash" for input_type in ("list", "numpy", "pandas", "polars")
     ]
     print("\n\nTo explore visually:")
     print("  snakeviz <file.prof>")

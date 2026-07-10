@@ -148,55 +148,10 @@ def test_experiment_repr() -> None:
     assert "splits" in r
 
 
-def test_experiment_repr_xxhash_shown_when_true() -> None:
-    """Experiment repr includes xxhash=True when set."""
-    pytest.importorskip("xxhash")
-    exp = Experiment(name="exp", splits=ALL_IN_A, xxhash=True)
-    assert "xxhash=True" in repr(exp)
-
-
-def test_experiment_repr_xxhash_hidden_when_false() -> None:
-    """Experiment repr omits xxhash when default."""
-    exp = Experiment(name="exp", splits=ALL_IN_A)
-    assert "xxhash" not in repr(exp)
-
-
-def test_experiment_xxhash_assign_string() -> None:
-    """Experiment with xxhash=True assigns a cohort name for string input."""
-    pytest.importorskip("xxhash")
-    exp = Experiment(name="exp", salt="exp", splits=ALL_IN_A, xxhash=True)
-    assert exp.assign("user_123") == "a"
-
-
-def test_experiment_xxhash_hash_string() -> None:
-    """Experiment with xxhash=True hashes to the xxhash golden value."""
-    pytest.importorskip("xxhash")
-    exp = Experiment(name="exp", salt="exp", splits=ALL_IN_A, xxhash=True)
-    assert exp.hash("user_123") == pytest.approx(0.2554616495514273)
-
-
-def test_experiment_xxhash_differs_from_hashlib() -> None:
-    """xxhash and hashlib backends produce different hash values."""
-    pytest.importorskip("xxhash")
-    exp_hashlib = Experiment(name="exp", salt="exp", splits=FIFTY_FIFTY)
-    exp_xxhash = Experiment(name="exp", salt="exp", splits=FIFTY_FIFTY, xxhash=True)
-    assert exp_hashlib.hash("user_123") != exp_xxhash.hash("user_123")
-
-
-def test_experiment_xxhash_equality() -> None:
-    """Two experiments with the same config including xxhash are equal."""
-    pytest.importorskip("xxhash")
-    a = Experiment(name="exp", splits=ALL_IN_A, xxhash=True)
-    b = Experiment(name="exp", splits=ALL_IN_A, xxhash=True)
-    assert a == b
-
-
-def test_experiment_xxhash_inequality_with_hashlib() -> None:
-    """xxhash=True and xxhash=False experiments are not equal."""
-    pytest.importorskip("xxhash")
-    a = Experiment(name="exp", splits=ALL_IN_A, xxhash=False)
-    b = Experiment(name="exp", splits=ALL_IN_A, xxhash=True)
-    assert a != b
+def test_experiment_hash_golden_value() -> None:
+    """Experiment.hash produces the SipHash golden value."""
+    exp = Experiment(name="exp", salt="exp", splits=ALL_IN_A)
+    assert exp.hash("user_123") == pytest.approx(0.35566264921558755)
 
 
 # --- ORM methods ---

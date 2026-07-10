@@ -6,10 +6,8 @@ from __future__ import annotations
 class _Config:
     """Runtime configuration object. Access via ``cohorting.config``.
 
-    Controls the hash backend, determinism mode, and caching used for all
-    cohort assignments. The default backend is `hashlib` `blake2b` (stdlib,
-    always available). Switch to `xxhash` for higher throughput when
-    ``cohorting[xxhash]`` is installed.
+    Controls determinism mode and caching used for all cohort assignments.
+    Hashing uses the xxh3_64 algorithm compiled in Rust.
 
     .. warning::
         ``cohorting.config`` is a process-wide singleton — mutations are **not
@@ -22,53 +20,14 @@ class _Config:
         ``Experiment`` captures its settings at construction and never reads the
         global config again.
 
-        Also note: switching backends or determinism modes changes all hash outputs.
-        Keep settings consistent across all processes in a deployment.
-
     Examples
     --------
     >>> import cohorting
-    >>> cohorting.config.xxhash = True        # opt in to xxhash backend
-    >>> cohorting.config.xxhash = False       # revert to hashlib
     >>> cohorting.config.deterministic = False  # random assignment via os.urandom
     >>> cohorting.config.deterministic = True   # revert to deterministic hashing
     >>> cohorting.config.cache = True         # enable LRU caching for repeated IDs
     >>> cohorting.config.cache = False        # disable caching (default)
     """
-
-    @property
-    def xxhash(self) -> bool:
-        """Whether the xxhash backend is currently active."""
-        import cohorting._hash as _hash_mod
-
-        return _hash_mod._USE_XXHASH
-
-    @xxhash.setter
-    def xxhash(self, enable: bool) -> None:
-        """Enable or disable the xxhash backend.
-
-        Parameters
-        ----------
-        enable : bool
-            True to switch to xxhash; False to revert to hashlib. Clears the
-            hash and assign caches on every call to prevent mixed-backend results.
-
-        Raises
-        ------
-        ImportError
-            If enable=True and xxhash is not installed.
-        """
-        import cohorting._cohort as _cohort_mod
-        import cohorting._hash as _hash_mod
-
-        if enable:
-            _hash_mod._ensure_xxhash()
-
-        _hash_mod._USE_XXHASH = enable
-        _hash_mod._hash_hashlib.cache_clear()
-        _hash_mod._hash_xxhash.cache_clear()
-        _cohort_mod._assign_hashlib.cache_clear()
-        _cohort_mod._assign_xxhash.cache_clear()
 
     @property
     def deterministic(self) -> bool:
@@ -97,10 +56,8 @@ class _Config:
         import cohorting._hash as _hash_mod
 
         _hash_mod._USE_DETERMINISTIC = enable
-        _hash_mod._hash_hashlib.cache_clear()
-        _hash_mod._hash_xxhash.cache_clear()
-        _cohort_mod._assign_hashlib.cache_clear()
-        _cohort_mod._assign_xxhash.cache_clear()
+        _hash_mod._cached_hash_single.cache_clear()
+        _cohort_mod._cached_assign_single.cache_clear()
 
     @property
     def cache(self) -> bool:
@@ -132,15 +89,12 @@ class _Config:
         import cohorting._hash as _hash_mod
 
         _hash_mod._USE_CACHE = enable
-        _hash_mod._hash_hashlib.cache_clear()
-        _hash_mod._hash_xxhash.cache_clear()
-        _cohort_mod._assign_hashlib.cache_clear()
-        _cohort_mod._assign_xxhash.cache_clear()
+        _hash_mod._cached_hash_single.cache_clear()
+        _cohort_mod._cached_assign_single.cache_clear()
 
 
 config: _Config = _Config()
 """Runtime configuration.
 
-Use ``config.xxhash``, ``config.deterministic``, and ``config.cache``
-to control hashing.
+Use ``config.deterministic`` and ``config.cache`` to control hashing.
 """

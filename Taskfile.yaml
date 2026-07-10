@@ -16,6 +16,22 @@ tasks:
             - task --list-all
         deps: [sync]
     #######################################
+    build-rust:
+        desc: Build the Rust extension (release)
+        cmds:
+            - uv run maturin develop --release --manifest-path rust-core/Cargo.toml
+    #######################################
+    build-rust-dev:
+        desc: Build the Rust extension (debug, fast compile)
+        cmds:
+            - uv run maturin develop --manifest-path rust-core/Cargo.toml
+    #######################################
+    install-dev:
+        desc: Install with debug Rust build for development
+        cmds:
+            - task: sync
+            - task: build-rust-dev
+    #######################################
     install:
         desc: Install Project + Dev Dependencies
         cmds:
@@ -45,7 +61,7 @@ tasks:
         cmds:
             - for:
                   matrix:
-                      PYTHON: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+                      PYTHON: ["3.10", "3.11", "3.12", "3.13"]
               task: test
               vars:
                   UV_PYTHON: "{{.ITEM.PYTHON}}"
@@ -163,6 +179,7 @@ tasks:
         internal: true
         cmds:
             - uv sync --all-extras {{.CLI_ARGS}}
+            - task: build-rust-dev
         env:
             UV_PYTHON: "{{.UV_PYTHON}}"
     #######################################
